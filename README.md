@@ -55,7 +55,9 @@ so, 我开始进行一个小尝试
 
 ## 1. 设计
 
-设计比较简单
+### 1.1  概述
+
+配置嘛, 设计比较简单
 
 1. pingsix 配置, 有对应的 protobuf 定义
 2. 有一个 grpc 服务, 嵌在 pingsix 中, 提供 grpc-web 及 grpc 服务进行配置管理
@@ -63,8 +65,269 @@ so, 我开始进行一个小尝试
 
 这里,  protobuf 定义要简单匹配 pingsix  /pingora 的概念.
 
-........ 
+### 1.2 原配置拆解
 
+以下是 pingsix 的一个配置示例
+
+```
+pingora:
+  version: 1
+  threads: 32
+  pid_file: /run/pingora.pid
+  upgrade_sock: /tmp/pingora_upgrade.sock
+  user: nobody
+  group: webusers
+
+pingsix:
+  listeners:
+    - address: 0.0.0.0:8084
+      offer_h2c: false
+      offer_h2: false
+      
+  etcd:
+    host:
+      - "http://192.168.2.141:2379"
+    prefix: /apisix
+
+  admin:
+    address: "0.0.0.0:8082"
+    api_key: pingsix
+
+  prometheus:
+    address: 0.0.0.0:8081
+
+  sentry:
+    dsn: https://1234567890@sentry.io/123456
+    
+routes:
+  - id: web
+    uris:
+      - /api.{*p}
+      - /
+      - /static/{*p}
+    upstream_id: grpc
+
+  - id: 5
+    uri: /echo
+    host: www.163.com
+    service_id: 2
+    plugins:
+      echo:
+        body: "Hello world!"
+        headers:
+          X-TEST: demo
+
+  - id: photo
+    uri: /storage/{*p}
+    upstream_id: preview
+
+
+upstreams:
+  - id: grpc
+    nodes:
+      "192.168.1.3:8083": 1
+      "192.168.1.4:8083": 1
+    type: roundrobin
+    scheme: http
+
+  - id: preview
+    nodes:
+      "192.168.2.1:8081": 1
+    type: roundrobin
+    scheme: http
+    
+ - id: 5
+    uri: /echo
+    host: www.163.com
+    service_id: 2
+    plugins:
+      echo:
+        body: "Hello world!"
+        headers:
+          X-TEST: demo
+
+services:
+  - id: 1
+    hosts: ["www.qq.com"]
+    upstream_id: 2
+  - id: 2
+    upstream:
+      nodes:
+        "www.163.com": 1
+      type: roundrobin
+      scheme: http
+    plugins:
+      limit-count:
+        key_type: head
+        key: Host
+        time_window: 1
+        count: 1
+        rejected_code: 429
+        rejected_msg: "Pleas slow down!"
+        
+global_rules:
+  - id: global
+    plugins:
+      logger: {}
+
+```
+
+
+
+拆解后, 分为 5个部署 
+
+1. pingora 运行配置
+2. pingsix 配置, 可以理解为 proxy 的基本配置
+3. routes 路由配置, 包括路由上的 plugin 及一些逻辑
+4. upstreams 配置
+5. services 配置
+6. global_rules 配置, 基本上可以看作全局的, 适合所有 routes 的 plugin 
+
+作为一个基础的 api gateway , 配置就是4个
+
+```
+route 路由( 就是 uri 匹配/参数条件) --> plugin 插件 --> upstream 上游服务器 ( nodes 服务器)
+                                               --> services 服务
+```
+
+
+
+### 1.3 配置的 protobuf 定义
+
+pingora 运行配置
+
+```
+pingora:
+  version: 1
+  threads: 32
+  pid_file: /run/pingora.pid
+  upgrade_sock: /tmp/pingora_upgrade.sock
+  user: nobody
+  group: webusers
+```
+
+对应的 protobuf
+
+```
+syntax = "proto3";
+
+package api.px.v1;
+
+import "api/px/v1/plugin.proto";
+
+message ConfigPingora {
+  string version = 1;
+  uint32 threads = 2;
+  string pid_file = 3;
+  string upgrade_sock = 4;
+  string user = 5;
+  string group = 6;
+}
+```
+
+
+
+路由配置
+
+```
+routes:
+  - id: web
+    uris:
+      - /api.{*p}
+      - /
+      - /static/{*p}
+    upstream_id: grpc
+
+  - id: 5
+    uri: /echo
+    host: www.163.com
+    service_id: 2
+    plugins:
+      echo:
+        body: "Hello world!"
+        headers:
+          X-TEST: demo
+
+  - id: photo
+    uri: /storage/{*p}
+    upstream_id: preview
+```
+
+可以看到 
+
+```
+    plugins:
+      echo:
+        body: "Hello world!"
+        headers:
+          X-TEST: demo
+```
+
+是 plugin 配置, 这里可以抽取 plugin 进行配置复用
+
+
+
+对应的 protobuf 
+
+```
+message ConfigRoute {
+  string version = 1;
+  string id = 2;
+  repeated string uris = 3;
+  optional string upstream_id = 4;
+  repeated string methods = 5;
+  repeated string plugin_id_list = 6;  // 相同配置, 复用
+  repeated Plugin plugin_list = 7;
+  optional string service_id = 8;
+  repeated string hosts = 9;
+  optional string host = 10;
+  optional ConfigTimeout timeout = 11;
+  uint32 priority = 12;
+}
+```
+
+
+
+
+
+upstream 配置
+
+```
+  - id: grpc
+    nodes:
+      "192.168.1.3:8083": 1
+      "192.168.1.4:8083": 1
+    type: roundrobin
+    scheme: http
+```
+
+对应 protobuf 
+
+```
+// 超时
+message ConfigTimeout {
+  uint64 connect = 1;
+  uint64 send = 2;
+  uint64 read = 3;
+}
+
+// 节点
+message UpstreamNode {
+  string address = 1;
+  uint32 priority = 2;
+}
+
+// upstream 
+message ConfigUpstream {
+  string version = 1;
+  string id = 2;
+  uint32 retries = 3;
+  uint64 retry_timeout = 4;
+  repeated UpstreamNode nodes = 5;
+  string scheme = 6;
+  optional ConfigTimeout timeout = 7;
+}
+```
 
 
 
