@@ -4,6 +4,10 @@
 
 draft in chinese.
 
+**一个 rust 初学者的练手项目**
+
+----------
+
 ## 0. 动机
 
 我们一直有 api gateway 的需求
@@ -12,11 +16,13 @@ draft in chinese.
 2. api 依据业务条件进行代理 
 3. 有一些业务上的关联集成
 
-我们实现了 go / rust 的不同版本, 在使用过程中, 在性能与业务定制上, 都有些限制
+我们实现了 go 的 proxy, 业务上满足要求, 但性能上掉链子. 接着, 尝试了 rust 的 proxy, 性能上满足了, 业务集成上基本配置文件硬写, 动态调整上有缺失.
+
+
 
 后来,  
 
-[pingora](https://github.com/cloudflare/pingora) 开源,  反向代理与 api gateway 有了一个重量级的框架. 感谢 [https://github.com/cloudflare](https://github.com/cloudflare/)!!!
+[pingora](https://github.com/cloudflare/pingora) 开源,  反向代理与 api gateway 有了一个重量级的框架. 感谢 [cloudflare](https://github.com/cloudflare/) !!!
 
 
 [pingsix](https://github.com/zhu327/pingsix) 给了我极大的惊喜. 这个项目由 [apisix](https://apisix.apache.org/) 启发,  作者[Timmy](https://github.com/zhu327) 的专业/专注, 让我赞叹. [Timmy的博客](https://zhu327.github.io/) 值得看一看.
@@ -60,15 +66,28 @@ so, 我开始进行一个小尝试
 ........ 
 
 
+
+
+
+
+
+
 ## 2. 实现
 
 实现上, 一步一步来吧, 
 
-1. fork  [pingsix](https://github.com/zhu327/pingsix)  , 调整配置部分, 与 grpc 配置进行对接
-2. 加一个 tonic grpc 服务
-3. 加一个 rust grpc client 示例 ( 兼作 cli 配置工具)
-4. 加一个 golang grpc client 示例
-5. 加一个 front 前端, 支持 grpc-web 实现 web 管理
+*  定义 protobuf 接口, 用 [bufbuild/buf ](https://github.com/bufbuild/buf) 进行生成
+*   tonic grpc 服务
+*   rust grpc client 示例 ( 兼作 cli 配置工具)
+*   golang grpc client 示例
+*   front 前端, 支持 grpc-web 实现 web 管理, 用 [nice-grpc-web](https://github.com/deeplay-io/nice-grpc)
+*   fork  [pingsix](https://github.com/zhu327/pingsix)  , 调整配置部分, 与 grpc 配置进行对接
+
+
+
+## 3. 限制
+
+仅在  linux / macOS 上测试 
 
  
 
